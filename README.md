@@ -97,7 +97,7 @@ The notch panel now has an explicit solid sRGB black backing without the gray bo
 
 WebP conversion now has a built-in lossless fallback when the installed FFmpeg lacks `libwebp`. AVIF and Ogg choose available encoders. Batch jobs reserve distinct filenames across overlapping requests and report unsupported inputs individually. PDF/DOCX page order, precise video trimming, silent-video operations, audio channels/bleep, PNG compression, image rotation, framing and metadata handling have regression fixes. [Test coverage and known gaps](docs/BUILD-STATUS.md).
 
-The lossless WebP fallback prioritizes compatibility, produces larger files, and does not use the lossy quality slider. It supports up to 16,384 pixels per side and keeps outputs within the app's 100 MB input limit; larger images need a compressed WebP encoder or resizing. Audio/video still require a suitable FFmpeg build for many operations. Word support is DOCX export, not general DOCX input conversion.
+The lossless WebP fallback prioritizes compatibility, produces larger files, and does not use the lossy quality slider. It supports up to 16,384 pixels per side and keeps outputs within the app's 100 MB input limit; larger images need a compressed WebP encoder or resizing. Audio/video still require a suitable FFmpeg build for many operations. On macOS, Word DOCX input converts to Markdown (headings, lists, tables, links and emphasis; images are noted, not exported) and to a formatted PDF (headers, footers, footnotes and drawn divider lines are not included).
 
 ## What changed in 0.1.2
 
@@ -124,7 +124,7 @@ Start with copies of ordinary files. Try PNG → JPEG, crop/resize, create a PDF
 | Area | Included implementation |
 |---|---|
 | Images | PNG, JPEG, HEIC, TIFF, BMP, WebP, AVIF and SVG input routes; quality settings; edit, crop, resize, rotate, visible redaction, background framing, collage, PDF creation |
-| Documents | PDF to text/images/DOCX/Markdown; text and Markdown to PDF/images/subtitles (Markdown input is rendered as plain text); PDF merge, split and page organization |
+| Documents | PDF to text/images/DOCX/Markdown; Word DOCX to Markdown/PDF; text and Markdown to PDF/images/subtitles (Markdown input is rendered as plain text); PDF merge, split and page organization |
 | Media | Audio/video conversions; trim, split, join, crop, speed, snapshots, visible redaction, audio normalization/channel tools/bleeping/visualizer; many need FFmpeg |
 | Subtitles | SRT, VTT and text conversions |
 | File actions | Reveal in Finder, copy files, copy paths, duplicate, streaming SHA-256 checksum copied to clipboard |

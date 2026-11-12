@@ -93,6 +93,7 @@ import PDFKit
         precondition(SubtitleParser.parseTimestamp("nan") == nil)
         print("PASS SRT/VTT round trip + both TXT exports; millisecond carry and invalid timestamp")
         try await markdownTests(root: root, convert: convert)
+        try await docxTests(root: root, convert: convert)
     }
 
     /// Draws positioned lines with named fonts, which survive PDFKit text extraction.
@@ -196,5 +197,164 @@ import PDFKit
         let notesPDF = try await convert(notes, .md, .pdf, "notes.pdf")
         precondition(PDFDocument(url: notesPDF)!.string!.contains("Plain"))
         print("PASS Markdown input still converts to PDF")
+    }
+
+    /// Writes a minimal .docx package from WordprocessingML parts.
+    static func docx(_ parts: [String: String], to url: URL) async throws {
+        let folder = url.deletingPathExtension().appendingPathExtension("parts")
+        for (path, content) in parts {
+            let file = folder.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: file, atomically: true, encoding: .utf8)
+        }
+        try await ZipTool.zip(directory: folder, to: url)
+    }
+
+    @MainActor static func docxTests(root: URL, convert: (URL, FileFormat, FileFormat, String) async throws -> URL) async throws {
+        let w = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\""
+        let rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        func p(_ style: String? = nil, num: (Int, Int)? = nil, _ runs: String) -> String {
+            var props = style.map { "<w:pStyle w:val=\"\($0)\"/>" } ?? ""
+            if let num { props += "<w:numPr><w:ilvl w:val=\"\(num.1)\"/><w:numId w:val=\"\(num.0)\"/></w:numPr>" }
+            return "<w:p><w:pPr>\(props)<w:rPr><w:b/></w:rPr></w:pPr>\(runs)</w:p>"
+        }
+        func r(_ text: String, _ props: String = "") -> String {
+            "<w:r><w:rPr>\(props)</w:rPr><w:t xml:space=\"preserve\">\(text)</w:t></w:r>"
+        }
+        let body = [
+            p("Title", r("Quarterly Report")),
+            p("Heading1", r("Overview")),
+            p(nil, r("Plain ") + r("bold", "<w:b/>") + r(" and ") + r("italic", "<w:i/>") + r(" with ") + r("code()", "<w:rFonts w:ascii=\"Courier New\"/>")
+                + r(" and a_b *stars*") + r("hidden", "<w:vanish/>") + "<w:del><w:r><w:delText>gone</w:delText></w:r></w:del>"
+                + "<w:r><w:tab/><w:t>tabbed</w:t></w:r>"),
+            p(nil, r("Visit ") + "<w:hyperlink r:id=\"rIdLink\">" + r("our site", "<w:rStyle w:val=\"Hyperlink\"/>") + "</w:hyperlink>"
+                + r(", ") + "<w:hyperlink r:id=\"rIdBad\">" + r("unsafe") + "</w:hyperlink>"
+                + r(" or ") + "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText> HYPERLINK \"mailto:hi@example.com\" </w:instrText></w:r><w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>"
+                + r("mail us") + "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>" + r(".")),
+            p(nil, r("Line one") + "<w:r><w:br/></w:r>" + r("# not a heading")),
+            p(nil, r("1. Not a list")),
+            p("Heading2", r("1. Lists")),
+            p(nil, num: (1, 0), r("First bullet")),
+            p(nil, num: (1, 1), r("Nested ") + r("bullet", "<w:b/>")),
+            p(nil, num: (1, 0), r("Second bullet")),
+            p(nil, num: (2, 0), r("Step one")),
+            p(nil, num: (2, 0), r("Step two")),
+            p(nil, num: (2, 1), r("Sub step")),
+            p(nil, num: (2, 0), r("Step three")),
+            p("Quote", r("A wise quote")),
+            p("CodeBlock", r("let x = 1")),
+            p("CodeBlock", ""),
+            p("CodeBlock", r("print(x) // **raw**")),
+            "<w:tbl><w:tr><w:tc><w:p>" + r("Name") + "</w:p></w:tc><w:tc><w:p>" + r("Qty | Unit") + "</w:p></w:tc></w:tr>"
+                + "<w:tr><w:tc><w:p>" + r("Apples", "<w:b/>") + "</w:p></w:tc><w:tc><w:p>" + r("3") + "</w:p><w:p>" + r("kg") + "</w:p></w:tc></w:tr>"
+                + "<w:tr><w:tc><w:tcPr><w:gridSpan w:val=\"2\"/></w:tcPr><w:p>" + r("Total") + "</w:p></w:tc></w:tr></w:tbl>",
+            p(nil, "<w:r><w:drawing><wp:inline><wp:docPr id=\"1\" name=\"Picture 1\" descr=\"Sales chart\"/><a:blip xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" r:embed=\"rIdImg\"/></wp:inline></w:drawing></w:r>"),
+            p(nil, "<w:r><w:pict><v:rect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" o:hr=\"t\"/></w:pict></w:r>"),
+            p(nil, "<w:r><w:drawing><wp:anchor><wp:docPr id=\"2\" name=\"Shape 2\"/></wp:anchor></w:drawing></w:r>"),
+            p(nil, "<mc:AlternateContent><mc:Choice Requires=\"wps\">" + r("Shown once") + "</mc:Choice><mc:Fallback>" + r("Shown once") + "</mc:Fallback></mc:AlternateContent>"),
+            "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>",
+            p("Heading1", r("Appendix")),
+            p(nil, r("Last page.")),
+        ].joined()
+        let parts = [
+            "[Content_Types].xml": "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/><Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/><Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/></Types>",
+            "_rels/.rels": "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"\(rel)/officeDocument\" Target=\"word/document.xml\"/></Relationships>",
+            "word/_rels/document.xml.rels": "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rIdS\" Type=\"\(rel)/styles\" Target=\"styles.xml\"/><Relationship Id=\"rIdN\" Type=\"\(rel)/numbering\" Target=\"numbering.xml\"/><Relationship Id=\"rIdLink\" Type=\"\(rel)/hyperlink\" Target=\"https://example.com/a(b)\" TargetMode=\"External\"/><Relationship Id=\"rIdBad\" Type=\"\(rel)/hyperlink\" Target=\"file:///etc/passwd\" TargetMode=\"External\"/></Relationships>",
+            "word/styles.xml": "<?xml version=\"1.0\"?><w:styles \(w)><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val=\"22\"/></w:rPr></w:rPrDefault></w:docDefaults>"
+                + "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style>"
+                + "<w:style w:type=\"paragraph\" w:styleId=\"Title\"><w:name w:val=\"Title\"/><w:basedOn w:val=\"Normal\"/><w:rPr><w:sz w:val=\"56\"/></w:rPr></w:style>"
+                + "<w:style w:type=\"paragraph\" w:styleId=\"Heading1\"><w:name w:val=\"heading 1\"/><w:basedOn w:val=\"Normal\"/><w:pPr><w:outlineLvl w:val=\"0\"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>"
+                + "<w:style w:type=\"paragraph\" w:styleId=\"Heading2\"><w:name w:val=\"heading 2\"/><w:basedOn w:val=\"Heading1\"/><w:pPr><w:outlineLvl w:val=\"1\"/></w:pPr></w:style>"
+                + "<w:style w:type=\"paragraph\" w:styleId=\"Quote\"><w:name w:val=\"Quote\"/><w:rPr><w:i/></w:rPr></w:style>"
+                + "<w:style w:type=\"paragraph\" w:styleId=\"CodeBlock\"><w:name w:val=\"Code Block\"/></w:style>"
+                + "<w:style w:type=\"character\" w:styleId=\"Hyperlink\"><w:name w:val=\"Hyperlink\"/></w:style></w:styles>",
+            "word/numbering.xml": "<?xml version=\"1.0\"?><w:numbering \(w)>"
+                + "<w:abstractNum w:abstractNumId=\"10\"><w:lvl w:ilvl=\"0\"><w:numFmt w:val=\"bullet\"/></w:lvl><w:lvl w:ilvl=\"1\"><w:numFmt w:val=\"bullet\"/></w:lvl></w:abstractNum>"
+                + "<w:abstractNum w:abstractNumId=\"20\"><w:lvl w:ilvl=\"0\"><w:start w:val=\"1\"/><w:numFmt w:val=\"decimal\"/></w:lvl><w:lvl w:ilvl=\"1\"><w:start w:val=\"1\"/><w:numFmt w:val=\"lowerLetter\"/></w:lvl></w:abstractNum>"
+                + "<w:num w:numId=\"1\"><w:abstractNumId w:val=\"10\"/></w:num><w:num w:numId=\"2\"><w:abstractNumId w:val=\"20\"/></w:num></w:numbering>",
+            "word/document.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document \(w)><w:body>\(body)<w:sectPr/></w:body></w:document>",
+        ]
+        let source = root.appendingPathComponent("report.docx")
+        try await docx(parts, to: source)
+        let markdown = try String(contentsOf: try await convert(source, .docx, .md, "report.md"), encoding: .utf8)
+        let expected = """
+        # Quarterly Report
+
+        # Overview
+
+        Plain **bold** and *italic* with `code()` and a\\_b \\*stars\\* tabbed
+
+        Visit [our site](https://example.com/a%28b%29), unsafe or [mail us](mailto:hi@example.com).
+
+        Line one\\
+        \\# not a heading
+
+        1\\. Not a list
+
+        ## 1. Lists
+
+        - First bullet
+            - Nested **bullet**
+        - Second bullet
+
+        1. Step one
+        2. Step two
+            1. Sub step
+        3. Step three
+
+        > *A wise quote*
+
+        ```
+        let x = 1
+
+        print(x) // **raw**
+        ```
+
+        | Name | Qty \\| Unit |
+        | --- | --- |
+        | **Apples** | 3<br>kg |
+        | Total |   |
+
+        <!-- Image: Sales chart (images are not exported to Markdown) -->
+
+        ---
+
+        Shown once
+
+        # Appendix
+
+        Last page.
+
+        """
+        if markdown != expected {
+            FileHandle.standardError.write(Data("--- expected\n\(expected)\n--- actual\n\(markdown)".utf8))
+            fatalError("DOCX -> Markdown structure mismatch")
+        }
+        print("PASS DOCX -> Markdown headings, emphasis, code, links, breaks, lists, quotes, code blocks, tables, images, hidden/deleted text")
+
+        let pdf = try await convert(source, .docx, .pdf, "report.pdf")
+        let document = PDFDocument(url: pdf)!
+        precondition(document.pageCount == 2, "page break should start page 2, got \(document.pageCount)")
+        precondition(document.page(at: 0)!.string!.contains("Quarterly Report") && document.page(at: 1)!.string!.contains("Appendix"))
+        print("PASS DOCX -> PDF keeps text and page breaks")
+
+        // A document saved by TextEdit has no heading styles; size marks the heading.
+        let plain = NSMutableAttributedString(string: "Trip Notes\n", attributes: [.font: NSFont(name: "Helvetica-Bold", size: 24)!])
+        let long = Array(repeating: "Body text that is long enough to wrap across several lines on the page.", count: 400).joined(separator: " ")
+        plain.append(NSAttributedString(string: "Packed bags.\n\(long)\n", attributes: [.font: NSFont(name: "Helvetica", size: 12)!]))
+        let textEdit = root.appendingPathComponent("textedit.docx")
+        try plain.data(from: NSRange(location: 0, length: plain.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML]).write(to: textEdit)
+        let textEditMarkdown = try String(contentsOf: try await convert(textEdit, .docx, .md, "textedit.md"), encoding: .utf8)
+        precondition(textEditMarkdown.hasPrefix("# Trip Notes\n\nPacked bags.\n\nBody text"), textEditMarkdown)
+        let longPDF = PDFDocument(url: try await convert(textEdit, .docx, .pdf, "textedit.pdf"))!
+        precondition(longPDF.pageCount > 1 && longPDF.string!.contains("Trip Notes"))
+        print("PASS DOCX from TextEdit -> Markdown size headings and multi-page PDF")
+
+        let broken = root.appendingPathComponent("broken.docx")
+        try Data("not a zip".utf8).write(to: broken)
+        for target: FileFormat in [.md, .pdf] {
+            do { _ = try await convert(broken, .docx, target, "broken.\(target.fileExtension)"); fatalError("Broken DOCX reported as success") } catch { }
+        }
+        print("PASS DOCX rejects files that are not Word documents")
     }
 }

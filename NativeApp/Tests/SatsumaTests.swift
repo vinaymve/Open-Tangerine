@@ -40,7 +40,7 @@ struct OpenTangerineTests {
         let runner = TestRunner()
 
         runner.test("conversion matrix excludes disabled archives") {
-            try expectEqual(ConversionMatrix.totalConversions, 182)
+            try expectEqual(ConversionMatrix.totalConversions, 184)
             try expectEqual(ConversionMatrix.targets(for: .zip).count, 0)
         }
 
@@ -76,7 +76,7 @@ struct OpenTangerineTests {
             try expectEqual(ConversionMatrix.targets(for: .txt), [.pdf, .jpg, .png, .srt, .vtt])
             try expectEqual(ConversionMatrix.targets(for: .srt), [.vtt, .txt])
             try expectEqual(ConversionMatrix.targets(for: .zip), [])
-            try expectEqual(ConversionMatrix.targets(for: .docx), [])
+            try expectEqual(ConversionMatrix.targets(for: .docx), [.md, .pdf])
         }
 
         runner.test("mixed selection intersects targets") {

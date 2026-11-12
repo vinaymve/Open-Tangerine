@@ -142,6 +142,7 @@ struct DocumentEngine: ConversionEngine {
         case (.pdf, .docx), (.pdf, .jpg), (.pdf, .png), (.pdf, .txt), (.pdf, .md): return true
         case (.txt, .pdf), (.txt, .jpg), (.txt, .png), (.txt, .srt), (.txt, .vtt): return true
         case (.md, .pdf), (.md, .jpg), (.md, .png), (.md, .srt), (.md, .vtt): return true
+        case (.docx, .pdf), (.docx, .md): return true
         default: return false
         }
     }
@@ -150,6 +151,7 @@ struct DocumentEngine: ConversionEngine {
         switch request.sourceFormat {
         case .pdf: try await convertPDF(request)
         case .txt, .md: try await convertText(request)
+        case .docx: try await convertDocx(request)
         default: throw OpenTangerineError.unsupportedConversion(request.sourceFormat, request.target)
         }
     }
@@ -210,6 +212,19 @@ struct DocumentEngine: ConversionEngine {
             try await DocxWriter.write(blocks: blocks, to: request.destination)
         default:
             throw OpenTangerineError.unsupportedConversion(.pdf, request.target)
+        }
+        request.progress(1)
+    }
+
+    private func convertDocx(_ request: ConversionRequest) async throws {
+        switch request.target {
+        case .md:
+            let markdown = try await DocxReader.markdown(request.source, progress: request.progress)
+            try markdown.write(to: request.destination, atomically: true, encoding: .utf8)
+        case .pdf:
+            try DocxReader.writePDF(request.source, to: request.destination, progress: request.progress)
+        default:
+            throw OpenTangerineError.unsupportedConversion(.docx, request.target)
         }
         request.progress(1)
     }
